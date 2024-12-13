@@ -20,6 +20,7 @@ import (
 	"dbm-services/common/dbha/ha-module/constvar"
 	"dbm-services/common/dbha/ha-module/dbutil"
 	"dbm-services/common/dbha/ha-module/log"
+	"dbm-services/common/dbha/ha-module/monitor"
 	"dbm-services/common/dbha/ha-module/util"
 )
 
@@ -260,7 +261,7 @@ func (ins *RedisSwitch) CheckTwemproxyPing() ([]dbutil.ProxyInfo, error) {
 					log.Logger.Warnf("twemproxy ping: [%s:%s] get nosqlproxy servers failed:{%+v}, info:%s",
 						proxyAddr, proxyInfo.Status, err, ins.ShowSwitchInstanceInfo())
 				}
-			} else { // proxy 可以链接上
+			} else {                                     // proxy 可以链接上
 				if ins.ProxyStatusIsRunning(proxyInfo) { // 只统计状态是 RUNNING 的 proxy
 					proxyLock.Lock()
 					proxyServers[proxyAddr] = segs
@@ -356,6 +357,10 @@ func (ins *RedisSwitch) DoKickTwemproxy(proxy dbutil.ProxyInfo) error {
 	ins.ReportLogs(constvar.InfoResult, fmt.Sprintf("kickoff twemproxy: start kickoff by [%s:%d]", proxy.Ip, proxy.Port))
 	infos, err := ins.CmDBClient.GetDBInstanceInfoByIp(proxy.Ip)
 	if err != nil {
+		minInfo := monitor.GetApiAlertInfo(constvar.CmDBInstanceUrl, err.Error())
+		if e := monitor.MonitorSend("get instances failed", minInfo); e != nil {
+			log.Logger.Warnf(e.Error())
+		}
 		redisErr := fmt.Errorf("kickoff twemproxy: get twemproxy[%s:%d:%d] from cmdb failed",
 			proxy.Ip, proxy.Port, proxy.AdminPort)
 		ins.ReportLogs(constvar.FailResult, redisErr.Error())

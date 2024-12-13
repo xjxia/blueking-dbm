@@ -34,6 +34,8 @@ type Config struct {
 	Timezone TimezoneConfig `yaml:"timezone"`
 	// configure for password service
 	PasswdConf APIConfig `yaml:"password_conf"`
+	// configure for Global Monitor
+	GlobalMonitorConf *GlobalMonitorConfig `yaml:"global_monitor_conf"`
 }
 
 // LogConfig configure for log
@@ -84,6 +86,20 @@ type GMConfig struct {
 	GMM            GMMConfig `yaml:"GMM"`
 	GQA            GQAConfig `yaml:"GQA"`
 	GCM            GCMConfig `yaml:"GCM"`
+}
+
+// GlobalMonitorConfig configure for agent component
+type GlobalMonitorConfig struct {
+	// active type list for db detect, valid type in constant.go
+	ActiveClusterType []string `yaml:"active_db_type"`
+	// instance city for detect, value 0 allowed, so required tag could not assign
+	CityID int `yaml:"city_id"`
+	// instance campus for detect
+	Campus string `yaml:"campus"`
+	// cloud id for agent, value 0 allowed, so required tag could not assign
+	CloudID        int    `yaml:"cloud_id"`
+	ReportInterval int    `yaml:"reporter_interval"`
+	LocalIP        string `yaml:"local_ip"`
 }
 
 // GDMConfig configure for GDM component

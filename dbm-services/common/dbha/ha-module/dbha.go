@@ -4,11 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"time"
 
 	"dbm-services/common/dbha/ha-module/agent"
 	"dbm-services/common/dbha/ha-module/config"
 	"dbm-services/common/dbha/ha-module/constvar"
+	"dbm-services/common/dbha/ha-module/globalmonitor"
 	"dbm-services/common/dbha/ha-module/gm"
 	"dbm-services/common/dbha/ha-module/log"
 	"dbm-services/common/dbha/ha-module/monitor"
@@ -81,16 +81,13 @@ func main() {
 			os.Exit(1)
 		}
 	case constvar.MONITOR:
-		for {
-			if monInfo, err := monitor.CheckHAComponent(conf); err != nil {
-				if err = monitor.MonitorSend(err.Error(), monInfo); err != nil {
-					log.Logger.Fatalf("global monitor run failed. err:%s", err.Error())
-					os.Exit(1)
-				}
-			}
-			time.Sleep(time.Duration(conf.Monitor.MonitorInterval) * time.Second)
+		mon := globalmonitor.NewMonitorComponent(conf)
+		if err = mon.RegisterMonitorInfoToHaDB(); err != nil {
+			log.Logger.Fatalf("global monitor register failed:%s", err.Error())
 		}
-
+		if err = mon.Run(); err != nil {
+			log.Logger.Fatalf("global monitor run failed:%s", err.Error())
+		}
 	default:
 		log.Logger.Fatalf("unknow dbha type")
 		os.Exit(1)
