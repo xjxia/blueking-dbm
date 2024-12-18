@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"dbm-services/bigdata/db-tools/dbactuator/pkg/util"
 	"dbm-services/common/dbha/ha-module/client"
 	"dbm-services/common/dbha/ha-module/config"
 	"dbm-services/common/dbha/ha-module/constvar"
@@ -20,6 +21,7 @@ type MachineInfo struct {
 	IP            string `json:"ip"`
 	LogicalCityID int    `json:"logical_city_id"`
 	ClusterType   string `json:"cluster_type"`
+	MachineType   string `json:"machine_type"`
 }
 
 // MonitorComponent global monitor work struct
@@ -50,6 +52,10 @@ type MonitorComponent struct {
 	GmList []model.HaStatus
 	//alert info to bk
 	AlertInfo monitor.MonitorInfo
+	//hash mod use to batch fetch cmdb instance
+	HashMod int
+	//skip statistics city list
+	IgnoreCityList []int
 }
 
 func NewMonitorComponent(conf *config.Config) *MonitorComponent {
@@ -64,6 +70,8 @@ func NewMonitorComponent(conf *config.Config) *MonitorComponent {
 		NeedDetectCities:   make(map[int]struct{}),
 		DetectedMachines:   make(map[string]struct{}),
 		DetectedCities:     make(map[int]struct{}),
+		HashMod:            conf.GlobalMonitorConf.HashMod,
+		IgnoreCityList:     conf.GlobalMonitorConf.IgnoreCityList,
 		AlertInfo: monitor.MonitorInfo{
 			EventName:       constvar.DBHAEventGlobalMonitor,
 			MonitorInfoType: constvar.MonitorInfoGlobal,
@@ -81,6 +89,7 @@ func NewMonitorComponent(conf *config.Config) *MonitorComponent {
 func (m *MonitorComponent) Run() error {
 	for {
 		time.Sleep(10 * time.Second)
+		log.Logger.Infof("------------------global monitor run start-----------------")
 		log.Logger.Debugf("try to get all ha componentinfo")
 		if err := m.getAllHaComponentInfo(); err != nil {
 			log.Logger.Errorf("get all HA component info failed:%s", err.Error())
@@ -99,6 +108,7 @@ func (m *MonitorComponent) Run() error {
 		m.checkComponentNormal()
 		m.reportHeartbeat()
 
+		log.Logger.Infof("------------------global monitor run finish-----------------")
 		time.Sleep(time.Duration(m.MonitorConf.ReportInterval) * time.Second)
 	}
 }
@@ -166,6 +176,7 @@ func (m *MonitorComponent) checkAllCovered() {
 		for k := range unCoveredCityMap {
 			m.AlertInfo.Global.UnCoveredCityIDs = append(m.AlertInfo.Global.UnCoveredCityIDs, k)
 		}
+		log.Logger.Errorf("uncovered city list:%#v", unCoveredCityMap)
 		if err := monitor.MonitorSend(fmt.Sprintf("%d logical_city_ids not covered by dbha",
 			len(unCoveredCityMap)), m.AlertInfo); err != nil {
 			log.Logger.Warnf(err.Error())
@@ -178,8 +189,10 @@ func (m *MonitorComponent) checkAllCovered() {
 func (m *MonitorComponent) checkComponentNormal() {
 	for _, agent := range m.AgentList {
 		if agent.ReportInterval > 20 {
-			if err := monitor.MonitorSend(fmt.Sprintf("agent:%s, cluster_type:%s detect too slow:%d",
-				agent.IP, agent.DbType, agent.ReportInterval), m.AlertInfo); err != nil {
+			msg := fmt.Sprintf("agent:%s, cluster_type:%s detect too slow:%d",
+				agent.IP, agent.DbType, agent.ReportInterval)
+			log.Logger.Errorf(msg)
+			if err := monitor.MonitorSend(msg, m.AlertInfo); err != nil {
 				log.Logger.Warnf(err.Error())
 			}
 			continue
@@ -187,8 +200,9 @@ func (m *MonitorComponent) checkComponentNormal() {
 	}
 	for _, gm := range m.GmList {
 		if gm.ReportInterval > 300 {
-			if err := monitor.MonitorSend(fmt.Sprintf("gm:%s, Campuse:%s report too slow:%d",
-				gm.IP, gm.Campus, gm.ReportInterval), m.AlertInfo); err != nil {
+			msg := fmt.Sprintf("gm:%s, Campuse:%s report too slow:%d", gm.IP, gm.Campus, gm.ReportInterval)
+			log.Logger.Errorf(msg)
+			if err := monitor.MonitorSend(msg, m.AlertInfo); err != nil {
 				log.Logger.Warnf(err.Error())
 			}
 			continue
@@ -197,10 +211,11 @@ func (m *MonitorComponent) checkComponentNormal() {
 }
 
 //fetch machine info by cluster type from cmdb
-func (m *MonitorComponent) getCmDBMachineByCluster(clusterType string) error {
+func (m *MonitorComponent) getCmDBMachineByCluster(clusterType string, hashMod, hashValue int) error {
+	num := 0
 	req := client.DBInstanceByClusterTypeRequest{
-		HashCnt:      1,
-		HashValue:    0,
+		HashCnt:      hashMod,
+		HashValue:    hashValue,
 		ClusterTypes: []string{clusterType},
 	}
 
@@ -225,13 +240,34 @@ func (m *MonitorComponent) getCmDBMachineByCluster(clusterType string) error {
 			return fmt.Errorf("get cmdb instance info failed:%s", jsonErr.Error())
 		}
 
+		if util.HasElem(cmdbIns.LogicalCityID, m.IgnoreCityList) {
+			continue
+		}
+
+		if cmdbIns.ClusterType == constvar.PredixyRedisCluster &&
+			cmdbIns.MachineType == constvar.TendisCacheMetaType {
+			continue
+		}
+		if cmdbIns.ClusterType == constvar.TendisplusCluster &&
+			cmdbIns.MachineType == constvar.TendisplusMetaType {
+			continue
+		}
+		if cmdbIns.ClusterType == constvar.MongoShardedCluster &&
+			(cmdbIns.MachineType == constvar.MongodbMetaType ||
+				cmdbIns.MachineType == constvar.MongoConfigMetaType) {
+			continue
+		}
+
 		if _, ok := m.NeedDetectMachines[cmdbIns.IP]; !ok {
 			m.NeedDetectMachines[cmdbIns.IP] = struct{}{}
 		}
 		if _, ok := m.NeedDetectCities[cmdbIns.LogicalCityID]; !ok {
 			m.NeedDetectCities[cmdbIns.LogicalCityID] = struct{}{}
+			num += 1
 		}
 	}
+	log.Logger.Debugf("cluster type:%s, hash_mod:%d, hash_value:%d, need detect machine number:%d",
+		clusterType, hashMod, hashValue, num)
 
 	return nil
 }
@@ -239,10 +275,14 @@ func (m *MonitorComponent) getCmDBMachineByCluster(clusterType string) error {
 //get all need detect machine from cmdb
 func (m *MonitorComponent) getAllNeedDetectMachineInfo() error {
 	for _, clusterType := range m.ActiveClusterType {
-		if err := m.getCmDBMachineByCluster(clusterType); err != nil {
-			return err
+		log.Logger.Infof("try to get all instances by cluster type:%s", clusterType)
+		for i := 0; i < m.HashMod; i++ {
+			if err := m.getCmDBMachineByCluster(clusterType, m.HashMod, i); err != nil {
+				return err
+			}
 		}
 	}
+	log.Logger.Debugf("all need detect city info:%#v", m.NeedDetectCities)
 
 	return nil
 }

@@ -17,16 +17,27 @@ import (
 
 var dbhaType string
 var configFile string
+var showVersion bool
+var version = "1.0.0"
+var githash = "unknown"
 
 // Init TODO
 func Init() {
 	flag.StringVar(&dbhaType, "type", "", `Input dbha type, ["agent","gm","monitor"]`)
 	flag.StringVar(&configFile, "config_file", "", "Input config file path")
+	flag.BoolVar(&showVersion, "version", false, "Show version")
 }
 
 func main() {
 	Init()
 	flag.Parse()
+
+	if showVersion {
+		fmt.Println("Version:", version)
+		fmt.Println("Git hash info:", githash)
+		os.Exit(0)
+	}
+
 	if flag.NFlag() != 2 {
 		fmt.Println("args wrong.")
 		os.Exit(1)

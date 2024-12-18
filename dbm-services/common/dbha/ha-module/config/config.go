@@ -92,14 +92,15 @@ type GMConfig struct {
 type GlobalMonitorConfig struct {
 	// active type list for db detect, valid type in constant.go
 	ActiveClusterType []string `yaml:"active_db_type"`
-	// instance city for detect, value 0 allowed, so required tag could not assign
-	CityID int `yaml:"city_id"`
 	// instance campus for detect
 	Campus string `yaml:"campus"`
 	// cloud id for agent, value 0 allowed, so required tag could not assign
 	CloudID        int    `yaml:"cloud_id"`
 	ReportInterval int    `yaml:"reporter_interval"`
 	LocalIP        string `yaml:"local_ip"`
+	// hash mod use to batch fetch cmdb instances
+	HashMod        int   `yaml:"hash_mod"`
+	IgnoreCityList []int `yaml:"ignore_city_list"`
 }
 
 // GDMConfig configure for GDM component
@@ -216,7 +217,7 @@ type BKConfig struct {
 	BkToken string `yaml:"bk_token"`
 }
 
-// MonitorConfig monitor configure
+// MonitorConfig monitor configure for alert
 type MonitorConfig struct {
 	BkDataId     int    `yaml:"bk_data_id"`
 	AccessToken  string `yaml:"access_token"`
@@ -225,10 +226,6 @@ type MonitorConfig struct {
 	LocalIP      string `yaml:"local_ip"`
 	//value 0 allowed, so required tag could not assign
 	CloudID int `yaml:"cloud_id"`
-	//interval(second) for global monitor
-	MonitorInterval int `yaml:"monitor_interval"`
-	// active cluster type list for agent detect
-	ActiveDBType []string `yaml:"active_db_type"`
 }
 
 // TimezoneConfig support config timezone

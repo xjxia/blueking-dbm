@@ -64,6 +64,15 @@ const (
 
 	// Mongos MONGOS = EnumField("mongos", _("mongos"))  # mongos
 	Mongos = "mongos"
+
+	// TendisCacheMetaType storage layer type name in PredixyRedisCluster
+	TendisCacheMetaType = "tendiscache"
+	// TendisPlusMetaType storage layer type name in PredixyTendisplusCluster
+	TendisPlusMetaType = "tendisplus"
+	// MongodbMetaType storage layer type name in MongoShardedCluster
+	MongodbMetaType = "mongodb"
+	// MongoConfigMetaType storage layer type name in MongoShardedCluster
+	MongoConfigMetaType = "mongo_config"
 )
 
 // instance role in cmdb
@@ -113,7 +122,7 @@ const (
 	SqlserverHA = "sqlserver_ha"
 
 	// MongoShardedCluster = EnumField("MongoShardedCluster", _("Mongo分片集群"))
-	MongoShardCluster = "MongoShardedCluster"
+	MongoShardedCluster = "MongoShardedCluster"
 )
 
 // wrapper name in TenDBCluster
