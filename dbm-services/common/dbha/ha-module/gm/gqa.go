@@ -35,6 +35,19 @@ type GQA struct {
 	reporter             *HAReporter
 	// blackWhiteListCache 缓存黑白名单，key为cluster_name，进入GQA时一次性加载
 	blackWhiteListCache map[string]bool
+	// insertedCache 本GM近期成功写入切换队列的实例，仅在GQA主循环中访问
+	insertedCache map[insertedKey]insertedInfo
+}
+
+type insertedKey struct {
+	ip   string
+	port int
+}
+
+type insertedInfo struct {
+	checkID    int64
+	hashID     uint32
+	insertTime time.Time
 }
 
 // NewGQA init GQA object
@@ -56,6 +69,7 @@ func NewGQA(gdm *GDM, conf *config.Config,
 		reporter:             reporter,
 		CmDBClient:           client.NewCmDBClient(&conf.DBConf.CMDB, conf.GetCloudId()),
 		HaDBClient:           client.NewHaDBClient(&conf.DBConf.HADB, conf.GetCloudId()),
+		insertedCache:        map[insertedKey]insertedInfo{},
 	}
 }
 
@@ -152,6 +166,12 @@ func (gqa *GQA) Process(cmdbInfos []dbutil.DataBaseSwitch) {
 		log.Logger.Infof("insert ha_switch_queue. info:{%s}", instance.ShowSwitchInstanceInfo())
 		err := gqa.InsertSwitchQueue(instance)
 		if err != nil {
+			if prevCheckID, dup := gqa.isDuplicateRound(instance); dup {
+				ip, port := instance.GetAddress()
+				log.Logger.Warnf("instance[%s#%d] already in switch by check_id:%d, skip this round(check_id:%d). err:%s",
+					ip, port, prevCheckID, instance.GetDoubleCheckId(), err.Error())
+				return
+			}
 			switchFail := "insert switch queue failed. err:" + err.Error()
 			log.Logger.Errorf("%s, info{%s}", err.Error(), instance.ShowSwitchInstanceInfo())
 			monitor.MonitorSendSwitch(instance, switchFail, false)
@@ -385,7 +405,7 @@ func (gqa *GQA) InsertSwitchQueue(instance dbutil.DataBaseSwitch) error {
 			SwitchStartTime:  &currentTime,
 			DbRole:           instance.GetRole(),
 			ConfirmResult:    doubleCheckInfo,
-			SwitchHashID: util.GenerateHash(fmt.Sprintf("%#%d", ip, port),
+			SwitchHashID: util.GenerateHash(fmt.Sprintf("%s#%d", ip, port),
 				int64(max(300, gqa.Conf.GMConf.ReportInterval))),
 		},
 	}
@@ -396,5 +416,38 @@ func (gqa *GQA) InsertSwitchQueue(instance dbutil.DataBaseSwitch) error {
 		return err
 	}
 	instance.SetSwitchUid(uid)
+	gqa.recordInserted(ip, port, req.SetArgs.CheckID, req.SetArgs.SwitchHashID)
 	return nil
+}
+
+// recordInserted 记录本GM已成功写入切换队列的实例，用于识别同一实例被重复轮次处理
+func (gqa *GQA) recordInserted(ip string, port int, checkID int64, hashID uint32) {
+	now := time.Now()
+	expire := time.Duration(2*max(300, gqa.Conf.GMConf.ReportInterval)) * time.Second
+	for key, val := range gqa.insertedCache {
+		if now.Sub(val.insertTime) > expire {
+			delete(gqa.insertedCache, key)
+		}
+	}
+	gqa.insertedCache[insertedKey{ip: ip, port: port}] = insertedInfo{
+		checkID:    checkID,
+		hashID:     hashID,
+		insertTime: now,
+	}
+}
+
+// isDuplicateRound 插入失败时判断是否因本GM其他轮次已插入同一实例（同hash窗口、不同check_id）导致
+// 是则说明该实例已在切换流程中，本轮可直接跳过
+func (gqa *GQA) isDuplicateRound(instance dbutil.DataBaseSwitch) (int64, bool) {
+	ip, port := instance.GetAddress()
+	val, ok := gqa.insertedCache[insertedKey{ip: ip, port: port}]
+	if !ok || val.checkID == instance.GetDoubleCheckId() {
+		return 0, false
+	}
+	hashID := util.GenerateHash(fmt.Sprintf("%s#%d", ip, port),
+		int64(max(300, gqa.Conf.GMConf.ReportInterval)))
+	if val.hashID != hashID {
+		return 0, false
+	}
+	return val.checkID, true
 }

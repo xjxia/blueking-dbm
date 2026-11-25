@@ -91,7 +91,7 @@ func (gcm *GCM) DoSwitchSingle(switchInstance dbutil.DataBaseSwitch) {
 		log.Logger.Infof("get instance lock and set unavailable")
 		err = gcm.SetUnavailableAndLockInstance(switchInstance)
 		if err != nil {
-			err = fmt.Errorf("set instance to unavailable failed:" + err.Error())
+			err = fmt.Errorf("set instance to unavailable failed:%s", err.Error())
 			log.Logger.Errorf("%s, info{%s}", err.Error(), switchInstance.ShowSwitchInstanceInfo())
 			break
 		}
@@ -208,7 +208,7 @@ func (gcm *GCM) InsertSwitchQueue(instance dbutil.DataBaseSwitch) error {
 			SwitchStartTime:  &currentTime,
 			DbRole:           instance.GetRole(),
 			ConfirmResult:    doubleCheckInfo,
-			SwitchHashID: util.GenerateHash(fmt.Sprintf("%#%d", ip, port),
+			SwitchHashID: util.GenerateHash(fmt.Sprintf("%s#%d", ip, port),
 				int64(max(300, gcm.Conf.GMConf.ReportInterval))),
 		},
 	}

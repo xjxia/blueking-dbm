@@ -84,6 +84,8 @@ func (gmm *GMM) Process(instance DoubleCheckInstanceInfo) {
 			go func(doubleCheckInstance DoubleCheckInstanceInfo) {
 				ip, port := doubleCheckInstance.db.GetAddress()
 				err := doubleCheckInstance.db.Detection()
+				// 双重检查结束后再同步缓存状态，避免检测过程中的中间状态导致去重失效
+				gmm.gdm.SyncCacheStatus(doubleCheckInstance.db)
 				switch doubleCheckInstance.db.GetStatus() {
 				case constvar.DBCheckSuccess:
 					gmm.HaDBClient.ReportHaLogRough(
